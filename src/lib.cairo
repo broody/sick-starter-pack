@@ -12,6 +12,8 @@ mod MyStarterPack {
     use openzeppelin::upgrades::interface::IUpgradeable;
     use openzeppelin::upgrades::UpgradeableComponent;
     use starknet::{ClassHash, ContractAddress};
+    use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess};
+
     use super::{MINTER_ROLE, UPGRADER_ROLE};
 
     component!(path: ERC721Component, storage: erc721, event: ERC721Event);
@@ -34,6 +36,7 @@ mod MyStarterPack {
 
     #[storage]
     struct Storage {
+        token_id: u256,
         #[substorage(v0)]
         erc721: ERC721Component::Storage,
         #[substorage(v0)]
@@ -60,15 +63,14 @@ mod MyStarterPack {
     #[constructor]
     fn constructor(
         ref self: ContractState,
-        default_admin: ContractAddress,
         minters: Array<ContractAddress>,
-        upgrader: ContractAddress,
     ) {
         self.erc721.initializer("Sick Starter Pack", "SSP", "");
         self.accesscontrol.initializer();
-
-        self.accesscontrol._grant_role(DEFAULT_ADMIN_ROLE, default_admin);
-        self.accesscontrol._grant_role(UPGRADER_ROLE, upgrader);
+        
+        let caller = starknet::get_caller_address();
+        self.accesscontrol._grant_role(UPGRADER_ROLE, caller);
+        self.accesscontrol._grant_role(DEFAULT_ADMIN_ROLE, caller);
         for minter in minters {
             self.accesscontrol._grant_role(MINTER_ROLE, minter);
         }
@@ -81,21 +83,20 @@ mod MyStarterPack {
         fn safe_mint(
             ref self: ContractState,
             recipient: ContractAddress,
-            token_id: u256,
-            data: Span<felt252>,
         ) {
+            let token_id = self.token_id.read();
             self.accesscontrol.assert_only_role(MINTER_ROLE);
-            self.erc721.safe_mint(recipient, token_id, data);
+            self.erc721.safe_mint(recipient, token_id, array![0].span());
+
+            self.token_id.write(token_id + 1);
         }
 
         #[external(v0)]
         fn safeMint(
             ref self: ContractState,
             recipient: ContractAddress,
-            tokenId: u256,
-            data: Span<felt252>,
         ) {
-            self.safe_mint(recipient, tokenId, data);
+            self.safe_mint(recipient);
         }
     }
 
